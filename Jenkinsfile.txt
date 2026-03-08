@@ -1,0 +1,73 @@
+pipeline {
+    agent { label "nodejs-agent" }
+
+    environment {
+        PI_CREDS = credentials('pi')
+    }
+
+    stages {
+
+        stage('SSH Test AWS') {
+            steps {
+                sshagent(credentials: ['ec2-ssh-key']) {
+                    sh '''
+                    ssh -o StrictHostKeyChecking=no ubuntu@54.**.**.** "hostname"
+                    '''
+                }
+            }
+        }
+
+        stage('Update AWS Server') {
+            steps {
+                sshagent(credentials: ['ec2-ssh-key']) {
+                    sh '''
+                    ssh -o StrictHostKeyChecking=no ubuntu@54.**.**.** "
+                    sudo apt update &&
+                    sudo apt upgrade -y
+                    " || true
+                    '''
+                }
+            }
+        }
+
+        stage('Update Raspberry Pi') {
+            steps {
+                script {
+                    def pi = [:]
+                    pi.name = "raspberrypi"
+                    pi.host = "192.**.**.**"
+                    pi.allowAnyHosts = true
+                    pi.user = env.PI_CREDS_USR
+                    pi.password = env.PI_CREDS_PSW
+
+                    sshCommand remote: pi, command: """
+                        sudo apt update &&
+                        sudo apt upgrade -y
+                    """
+                }
+            }
+        }
+
+        stage('Reboot Servers') {
+            parallel {
+
+                stage('Reboot AWS') {
+                    steps {
+                        sshagent(['ec2-ssh-key']) {
+                            sh 'ssh ubuntu@54.**.**.** "sudo reboot" || true'
+                        }
+                    }
+                }
+
+                stage('Reboot Raspberry Pi') {
+                    steps {
+                        script {
+                            sshCommand remote: pi, command: "sudo reboot || true"
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+}
